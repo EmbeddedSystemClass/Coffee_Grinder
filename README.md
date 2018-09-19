@@ -1,8 +1,6 @@
-# Coffee_Grinder
+# Coffee Grinder
 
-[TOC]
-
-![webpage](doku\webpage.png)
+![webpage](doku/webpage.png)
 
 This is a automation of a coffee grinder.
 
