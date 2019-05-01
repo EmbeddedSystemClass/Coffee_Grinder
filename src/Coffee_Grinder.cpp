@@ -33,39 +33,39 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
 			if(pch != NULL){
 			  pch = strtok(NULL,",\"][");
 			  if(stringOne.equals("TARA")){
-				Serial.printf("\ncmd: %s", cmd);
-				grinder.tare(); //set offset
+					Serial.printf("\ncmd: %s", cmd);
+					grinder.tare(); //set offset
 			  }
 			  else if(stringOne.equals("SET")){
-				Serial.printf("\ncmd: %s [", cmd);
-				i=0;
-				while (pch != NULL){
-				  if(i<4){ 
-					grinder.mem.webSetting[i++]=atoi(pch);
-				  }
-				  Serial.printf("%s,", pch);
-				  pch = strtok(NULL,",\"][");
-				}
-				Serial.printf("]");
+					Serial.printf("\ncmd: %s [", cmd);
+					i=0;
+					while (pch != NULL){
+						if(i<4){ 
+						grinder.mem.webSetting[i++]=atoi(pch);
+						}
+						Serial.printf("%s,", pch);
+						pch = strtok(NULL,",\"][");
+					}
+					Serial.printf("]");
 			  }
 			  else if(stringOne.equals("CALIB")){
-				Serial.printf("\ncmd: %s [", cmd);
-				i=5;
-				while (pch != NULL){
-				  if(i<6){ 
-					grinder.mem.webSetting[i++]=atoi(pch);
-				  }
-				  Serial.printf("%s,", pch);
-				  pch = strtok(NULL,",\"][");
-				}
-				Serial.printf("]");
-				if(grinder.mem.grinder.calibration_weight == 0)
-				{
-					grinder.resetScale();
-				}
-				else{
-					grinder.setScaleFaktor();
-				}
+					Serial.printf("\ncmd: %s [", cmd);
+					i=5;
+					while (pch != NULL){
+						if(i<6){ 
+						grinder.mem.webSetting[i++]=atoi(pch);
+						}
+						Serial.printf("%s,", pch);
+						pch = strtok(NULL,",\"][");
+					}
+					Serial.printf("]");
+					if(grinder.mem.grinder.calibration_weight == 0)
+					{
+						grinder.resetScale();
+					}
+					else{
+						grinder.setScaleFaktor();
+					}
 			  }
 			}
 			
@@ -104,21 +104,22 @@ void Coffee_Grinder::setup(){
 	mem.grinder.updateTime = 500;
 	
 	//read scale_faktor from memory
-	EEPROM.get( 0, scale_faktor );
-	EEPROM.commit();
-	EEPROM.end();
-  
+	loadConfig();
+	Serial.print("scale: ");
+	Serial.println(scale_faktor);
+
 	//setup scale
 	scale.begin(m_doutPin, m_sckPin);
 	scale.set_scale(scale_faktor);
 	scale.tare(); //Reset the scale to 0
-	if(scale.is_connected){
-		Serial.println("HX711 is connected");
+
+	if (scale.wait_ready_timeout(1000)) {
+  	Serial.println("HX711 is connected");
+		mem.grinder.scale_is_connected = 1;
+	} else {
+		Serial.println("HX711 not found.");
+		mem.grinder.scale_is_connected = 0;
 	}
-	else{
-		Serial.println("HX711 is not connected");
-	}
-	mem.grinder.scale_is_connected = scale.is_connected;
 	
 	//setup webSocket
 	webSocket.begin();                                // start webSocket server
@@ -126,13 +127,22 @@ void Coffee_Grinder::setup(){
 }
 void Coffee_Grinder::loop(){
 	//read scale
-	weight = scale.get_units(1);
-	
-	//if scale connected change than message over webSocket
-	if(mem.grinder.scale_is_connected!=scale.is_connected){
-    webSocket.sendTXT(socketNumber, "wpMeter,UI," + String(mem.webSetting[0]) + ","+String(mem.webSetting[1])+ ","+String(mem.webSetting[2])+ ","+String(mem.webSetting[3])+ ","+String(mem.webSetting[4])+ ",1");
-	  mem.grinder.scale_is_connected=scale.is_connected;
-  }
+	if (scale.wait_ready_timeout(1000)) {
+  	//read scale
+		weight = scale.get_units(1);
+
+		//if scale connected change than message over webSocket
+		if(mem.grinder.scale_is_connected==0){
+			webSocket.sendTXT(socketNumber, "wpMeter,UI," + String(mem.webSetting[0]) + ","+String(mem.webSetting[1])+ ","+String(mem.webSetting[2])+ ","+String(mem.webSetting[3])+ ","+String(mem.webSetting[4])+ ",1");
+			mem.grinder.scale_is_connected = 1;
+		}	
+	} else {
+		//if scale connected change than message over webSocket
+		if(mem.grinder.scale_is_connected==1){
+			webSocket.sendTXT(socketNumber, "wpMeter,UI," + String(mem.webSetting[0]) + ","+String(mem.webSetting[1])+ ","+String(mem.webSetting[2])+ ","+String(mem.webSetting[3])+ ","+String(mem.webSetting[4])+ ",1");
+			mem.grinder.scale_is_connected = 0;
+		}
+	}
 
 	//send every X seconds a value to Websocket
 	currentTime = millis();
@@ -168,11 +178,7 @@ void Coffee_Grinder::setScaleFaktor(){
 	scale.set_offset(scale_offset);
 	scale.set_scale(scale_faktor);
 	
-	//save scale_faktor
-	EEPROM.begin(512);
-	EEPROM.put(0, scale_faktor);
-	EEPROM.commit();
-	EEPROM.end();
+	saveConfig();
 }
 
 void Coffee_Grinder::resetScale(){
@@ -194,4 +200,20 @@ void Coffee_Grinder::start(){
 
 void Coffee_Grinder::stop(){
 	digitalWrite(m_relaisPin, 0^neg);
+}
+
+void Coffee_Grinder::loadConfig() {
+  // Loads configuration from EEPROM into RAM
+  EEPROM.begin(4095);
+  EEPROM.get( 0, scale_faktor );
+  EEPROM.end();
+}
+
+void Coffee_Grinder::saveConfig() {
+  // Save configuration from RAM into EEPROM
+  EEPROM.begin(4095);
+  EEPROM.put( 0, scale_faktor );
+  delay(200);
+  EEPROM.commit();                      // Only needed for ESP8266 to get data written
+  EEPROM.end();                         // Free RAM copy of structure
 }

@@ -16,21 +16,21 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <WebSocketsServer.h>
-#include "HX711.h"
+#include <HX711.h>
 
-typedef struct grinderSetting{
+typedef struct {
 	int autoMode;
 	int manuMode;
 	int setpoint_weight;
 	int updateTime;
 	int scale_is_connected;
 	int calibration_weight;
-};
+} grinderSetting;
 
-typedef union MEM_Grinder{
+typedef union {
 	grinderSetting grinder;
 	int webSetting[sizeof(grinderSetting)];
-};
+} MEM_Grinder;
 
 class Coffee_Grinder
 {
@@ -62,6 +62,8 @@ class Coffee_Grinder
   	unsigned long currentTime;
   	unsigned long loopTime;
   	
+		void saveConfig();
+		void loadConfig();
   	HX711 scale;
 };
 
