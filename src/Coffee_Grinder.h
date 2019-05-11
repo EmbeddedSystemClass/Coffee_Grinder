@@ -32,6 +32,12 @@ typedef union {
 	int webSetting[sizeof(grinderSetting)];
 } MEM_Grinder;
 
+typedef enum {
+    WAIT,
+    FILL,
+    MANUAL
+} grinderState;
+
 class Coffee_Grinder
 {
   public:
@@ -39,7 +45,7 @@ class Coffee_Grinder
 	
 	void setup();
     void loop();
-    void setScaleFaktor();
+    void setScaleFactor();
   	void resetScale();
   	void tare();
   	void start();
@@ -47,7 +53,7 @@ class Coffee_Grinder
   	  	
   	MEM_Grinder mem;
   	float weight;
-  	float scale_faktor;
+  	float scale_factor;
     uint8_t socketNumber;
   private:
     int neg;
@@ -55,7 +61,7 @@ class Coffee_Grinder
   	int m_sckPin; 
   	int m_doutPin;
   	long scale_offset;
-  	
+  	grinderState m_state;
   	
   	float calibration_factor;
   		
@@ -64,6 +70,8 @@ class Coffee_Grinder
   	
 		void saveConfig();
 		void loadConfig();
+		void stateMachine();
+		void logbook(String statement,float value );
   	HX711 scale;
 };
 

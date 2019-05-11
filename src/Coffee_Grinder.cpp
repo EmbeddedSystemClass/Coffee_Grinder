@@ -32,7 +32,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
 			String stringOne = cmd;
 			if(pch != NULL){
 			  pch = strtok(NULL,",\"][");
-			  if(stringOne.equals("TARA")){
+			  if(stringOne.equals("TARA")||stringOne.equals("GET_DEFAULT")){
 					Serial.printf("\ncmd: %s", cmd);
 					grinder.tare(); //set offset
 			  }
@@ -64,7 +64,7 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t lenght
 						grinder.resetScale();
 					}
 					else{
-						grinder.setScaleFaktor();
+						grinder.setScaleFactor();
 					}
 			  }
 			}
@@ -92,6 +92,7 @@ Coffee_Grinder::Coffee_Grinder(int relaisPin,int outNegated,int sckPin, int dout
   neg = outNegated;
   m_sckPin = sckPin;
   m_doutPin = doutPin;
+	m_state = WAIT;
 }
 	
 void Coffee_Grinder::setup(){
@@ -103,14 +104,14 @@ void Coffee_Grinder::setup(){
 	mem.grinder.setpoint_weight=17;
 	mem.grinder.updateTime = 500;
 	
-	//read scale_faktor from memory
+	//read scale_factor from memory
 	loadConfig();
 	Serial.print("scale: ");
-	Serial.println(scale_faktor);
+	Serial.println(scale_factor);
 
 	//setup scale
 	scale.begin(m_doutPin, m_sckPin);
-	scale.set_scale(scale_faktor);
+	scale.set_scale(scale_factor);
 	scale.tare(); //Reset the scale to 0
 
 	if (scale.wait_ready_timeout(1000)) {
@@ -130,6 +131,7 @@ void Coffee_Grinder::loop(){
 	if (scale.wait_ready_timeout(1000)) {
   	//read scale
 		weight = scale.get_units(1);
+		weight = (floor((weight*10)+0.5))/10;
 
 		//if scale connected change than message over webSocket
 		if(mem.grinder.scale_is_connected==0){
@@ -148,36 +150,27 @@ void Coffee_Grinder::loop(){
 	currentTime = millis();
     if((currentTime - loopTime) > mem.grinder.updateTime) {                            
         String temp_str;
-        temp_str = String(weight);;
+        temp_str = String(weight);
         webSocket.sendTXT(socketNumber, "wpMeter,Arduino," + temp_str + ",1");
         loopTime = currentTime;// typical runtime this IF{} == 300uS - 776uS measured
     }
 	
-	//todo: process state machine
-	if(((weight < mem.grinder.setpoint_weight)&&(mem.grinder.autoMode==1)&& mem.grinder.scale_is_connected) || (mem.grinder.manuMode==1))
-	{
-		start();
-	}
-	else{
-	if(mem.grinder.autoMode==1){
-		mem.grinder.autoMode = 0;
-	}
-		stop();
-	}
+	stateMachine();
 	
 	//process webSocket
 	webSocket.loop();
 	
 }
 
-void Coffee_Grinder::setScaleFaktor(){
-	scale_faktor = (float) ((scale.read_average()-scale_offset) / mem.grinder.calibration_weight);
+void Coffee_Grinder::setScaleFactor(){
+	scale_factor = (float) ((scale.read_average()-scale_offset) / mem.grinder.calibration_weight);
 	Serial.print("\nscale: ");
-	Serial.println(scale_faktor);
-	//calibration_factor=scale_faktor;
+	Serial.println(scale_factor);
+	//calibration_factor=scale_factor;
 	scale.set_offset(scale_offset);
-	scale.set_scale(scale_faktor);
-	
+	scale.set_scale(scale_factor);
+	logbook("offset",scale_offset);
+	logbook("factor",scale_factor);
 	saveConfig();
 }
 
@@ -192,6 +185,7 @@ void Coffee_Grinder::resetScale(){
 
 void Coffee_Grinder::tare(){
   scale.tare();
+	logbook("factor",scale_factor);
 }
 
 void Coffee_Grinder::start(){
@@ -205,15 +199,60 @@ void Coffee_Grinder::stop(){
 void Coffee_Grinder::loadConfig() {
   // Loads configuration from EEPROM into RAM
   EEPROM.begin(4095);
-  EEPROM.get( 0, scale_faktor );
+  EEPROM.get( 0, scale_factor );
   EEPROM.end();
 }
 
 void Coffee_Grinder::saveConfig() {
   // Save configuration from RAM into EEPROM
   EEPROM.begin(4095);
-  EEPROM.put( 0, scale_faktor );
+  EEPROM.put( 0, scale_factor );
   delay(200);
   EEPROM.commit();                      // Only needed for ESP8266 to get data written
   EEPROM.end();                         // Free RAM copy of structure
+}
+
+void Coffee_Grinder::logbook(String statement,float value ){
+	String temp_str = String(value);
+	webSocket.sendTXT(socketNumber, "wpMeter,LOG," + statement+": "+temp_str + ",1");
+}
+
+void Coffee_Grinder::stateMachine() {
+
+	switch(m_state){
+    case WAIT:{
+			if(mem.grinder.autoMode==1){
+				start();
+				m_state = FILL;
+				mem.grinder.autoMode = 0;
+				logbook("FILL ON",mem.grinder.setpoint_weight);
+			}
+			if(mem.grinder.manuMode==1){
+				start();
+				m_state = MANUAL;
+				logbook("MANUAL ON",0);
+			}
+			break;
+		}
+    case FILL:{
+			if(weight >= mem.grinder.setpoint_weight){
+				stop();
+				m_state = WAIT;
+				logbook("FILL OFF",weight);
+			}
+			break;
+		}
+    case MANUAL:{
+			if(mem.grinder.manuMode==0){
+				stop();
+				m_state = WAIT;
+				logbook("MANUAL OFF",0);
+			}
+			break;
+		}
+    default: {
+			
+			break;
+		}
+	}
 }

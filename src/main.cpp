@@ -105,7 +105,7 @@ void loop() {
     {
       char temp = Serial.read();
       if(temp == '+' || temp == 'a')
-        grinder.scale_faktor += 1;
+        grinder.scale_factor += 1;
     }
 #ifndef OTA
     static unsigned long lled = 0;
